@@ -67,8 +67,17 @@ class TidalControl(PlayerControl):
         self.status_file = "/tmp/tidal-status.json"
         self.last_status = {}
         
-        # Check if status file exists and is being updated
-        self.is_active_player = os.path.exists(self.status_file)
+        # Check if Tidal is available - either status file exists or container is running
+        if os.path.exists(self.status_file):
+            self.is_active_player = True
+        else:
+            # Fallback: check if container is running
+            try:
+                result = subprocess.run(['docker', 'ps', '-q', '-f', 'name=tidal_connect'], 
+                                      capture_output=True, text=True, timeout=2)
+                self.is_active_player = (result.returncode == 0 and result.stdout.strip() != "")
+            except:
+                self.is_active_player = False
 
         
     def start(self):
