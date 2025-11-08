@@ -368,11 +368,32 @@ ${INDENT}mpris.register_nonmpris_player(tdctl.playername,tdctl)"
       
       # Insert after Spotify registration line (use temp file for compatibility)
       TEMP_FILE=$(mktemp)
-      head -n "${SPOTIFY_LINE}" "$AC_CONTROL_FILE" > "$TEMP_FILE"
-      echo "$REGISTRATION_CODE" >> "$TEMP_FILE"
-      tail -n +$((SPOTIFY_LINE + 1)) "$AC_CONTROL_FILE" >> "$TEMP_FILE"
-      mv "$TEMP_FILE" "$AC_CONTROL_FILE"
-      log INFO "Tidal registration code added successfully."
+      if head -n "${SPOTIFY_LINE}" "$AC_CONTROL_FILE" > "$TEMP_FILE" 2>/dev/null && \
+         echo "$REGISTRATION_CODE" >> "$TEMP_FILE" && \
+         tail -n +$((SPOTIFY_LINE + 1)) "$AC_CONTROL_FILE" >> "$TEMP_FILE" 2>/dev/null; then
+        # Verify before replacing
+        if grep -q "tdctl = TidalControl()" "$TEMP_FILE"; then
+          # Backup and replace
+          cp "$AC_CONTROL_FILE" "${AC_CONTROL_FILE}.bak"
+          if mv "$TEMP_FILE" "$AC_CONTROL_FILE" && grep -q "tdctl = TidalControl()" "$AC_CONTROL_FILE"; then
+            rm -f "${AC_CONTROL_FILE}.bak"
+            log INFO "Tidal registration code added successfully."
+          else
+            log ERROR "Failed to verify registration. Restoring backup..."
+            mv "${AC_CONTROL_FILE}.bak" "$AC_CONTROL_FILE" 2>/dev/null || true
+            rm -f "$TEMP_FILE"
+            log ERROR "Run: ./work-in-progress/audiocontrol2/add-tidal-registration.sh"
+          fi
+        else
+          log ERROR "Registration code not found in temp file. Aborting."
+          rm -f "$TEMP_FILE"
+          log ERROR "Run: ./work-in-progress/audiocontrol2/add-tidal-registration.sh"
+        fi
+      else
+        log ERROR "Failed to create temp file for registration."
+        rm -f "$TEMP_FILE"
+        log ERROR "Run: ./work-in-progress/audiocontrol2/add-tidal-registration.sh"
+      fi
     else
       log ERROR "Could not find any player registration line. Manual configuration required."
       log ERROR "Run: ./work-in-progress/audiocontrol2/add-tidal-registration.sh"
