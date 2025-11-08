@@ -73,17 +73,35 @@ usage()
 select_playback_device()
 {
   ARRAY_DEVICES=()
-  DEVICES=$(docker run --device /dev/snd \
+  
+  echo ""
+  echo "Scanning for audio output devices..."
+  
+  # Try to get devices using docker run (container doesn't need to be running)
+  DEVICES=$(docker run --rm --device /dev/snd \
     --entrypoint "" \
-    edgecrush3r/tidal-connect \
+    ${DOCKER_IMAGE} \
     /app/ifi-tidal-release/bin/ifi-pa-devs-get 2>/dev/null | grep device#)
 
+  if [ -z "$DEVICES" ]; then
+    log ERROR "Could not detect audio devices. Trying alternative method..."
+    # Fallback: try to use aplay to list devices
+    DEVICES=$(aplay -l 2>/dev/null | grep -E "^card [0-9]+:" | head -5)
+    if [ -z "$DEVICES" ]; then
+      log ERROR "No audio devices found. Using default device."
+      PLAYBACK_DEVICE="default"
+      return
+    fi
+  fi
+
   echo ""
-  echo "Found output devices..."
+  echo "Found output devices:"
   echo ""
+  
   #make newlines the only separator
   IFS=$'\n'
   re_parse="^device#([0-9])+=(.*)$"
+  device_count=0
   for line in $DEVICES
   do
     if [[ $line =~ $re_parse ]]
@@ -91,21 +109,35 @@ select_playback_device()
       device_num="${BASH_REMATCH[1]}"
       device_name="${BASH_REMATCH[2]}"
 
-      echo "${device_num}=${device_name}"
-      ARRAY_DEVICES+=( ${device_name} )
+      echo "  ${device_num}=${device_name}"
+      ARRAY_DEVICES+=( "${device_name}" )
+      device_count=$((device_count + 1))
     fi
   done
 
+  if [ $device_count -eq 0 ]; then
+    log ERROR "No valid audio devices found. Using default device."
+    PLAYBACK_DEVICE="default"
+    return
+  fi
+
+  echo ""
   while :; do
-    read -ep 'Choose your output Device (0-9): ' number
-    [[ $number =~ ^[[:digit:]]+$ ]] || continue
-    (( ( (number=(10#$number)) <= 9999 ) && number >= 0 )) || continue
-    # Here I'm sure that number is a valid number in the range 0..9999
-    # So let's break the infinite loop!
+    read -ep "Choose your output Device (0-$((device_count-1))): " number
+    [[ $number =~ ^[[:digit:]]+$ ]] || { echo "Please enter a number."; continue; }
+    (( ( (number=(10#$number)) <= $((device_count-1)) ) && number >= 0 )) || { echo "Please enter a number between 0 and $((device_count-1))."; continue; }
     break
   done
 
   PLAYBACK_DEVICE="${ARRAY_DEVICES[$number]}"
+  
+  if [ -z "$PLAYBACK_DEVICE" ]; then
+    log ERROR "Invalid device selection. Using default device."
+    PLAYBACK_DEVICE="default"
+  else
+    echo ""
+    echo "Selected: ${PLAYBACK_DEVICE}"
+  fi
 }
 
 
@@ -235,7 +267,14 @@ fi
 
 log INFO "Select audio output device"
 select_playback_device
-echo ${PLAYBACK_DEVICE}
+
+# Validate that a device was selected
+if [ -z "$PLAYBACK_DEVICE" ]; then
+  log ERROR "No playback device selected. Installation cannot continue."
+  exit 1
+fi
+
+log INFO "Playback device set to: ${PLAYBACK_DEVICE}"
 
 log INFO "Creating .env file."
 ENV_FILE="${PWD}/Docker/.env"
