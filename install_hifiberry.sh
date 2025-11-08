@@ -335,18 +335,25 @@ if [ -f "/opt/audiocontrol2/audiocontrol2.py" ]; then
   
   AC_CONTROL_FILE="/opt/audiocontrol2/audiocontrol2.py"
   
-  # Check if already configured
-  if ! grep -q "from ac2.players.tidalcontrol import TidalControl" "$AC_CONTROL_FILE"; then
-    log INFO "Configuring AudioControl2 for Tidal integration."
-    
+  # Check if already configured (both import AND registration)
+  HAS_IMPORT=$(grep -q "from ac2.players.tidalcontrol import TidalControl" "$AC_CONTROL_FILE" && echo "yes" || echo "no")
+  HAS_REGISTRATION=$(grep -q "tdctl = TidalControl()" "$AC_CONTROL_FILE" && echo "yes" || echo "no")
+  
+  if [ "$HAS_IMPORT" = "no" ]; then
+    log INFO "Adding Tidal import to AudioControl2."
     # Add import
     sed -i '/^from ac2\.players\.vollibrespot import MYNAME as SPOTIFYNAME$/a from ac2.players.tidalcontrol import TidalControl' "$AC_CONTROL_FILE"
-    
+  fi
+  
+  if [ "$HAS_REGISTRATION" = "no" ]; then
+    log INFO "Adding Tidal registration to AudioControl2."
     # Add registration
     PLACEHOLDER="$(sed -nE 's/^(.*)mpris\.register_nonmpris_player\(SPOTIFYNAME,vlrctl\)$/\1/p' "$AC_CONTROL_FILE")"
     sed -i "/mpris.register_nonmpris_player(SPOTIFYNAME,vlrctl)/a \\\n${PLACEHOLDER}# TidalControl\n${PLACEHOLDER}tdctl = TidalControl()\n${PLACEHOLDER}tdctl.start()\n${PLACEHOLDER}mpris.register_nonmpris_player(tdctl.playername,tdctl)" "$AC_CONTROL_FILE"
-  else
-    log INFO "AudioControl2 already configured for Tidal."
+  fi
+  
+  if [ "$HAS_IMPORT" = "yes" ] && [ "$HAS_REGISTRATION" = "yes" ]; then
+    log INFO "AudioControl2 already fully configured for Tidal."
   fi
   
   # Create service override to ensure audiocontrol2 starts after tidal
