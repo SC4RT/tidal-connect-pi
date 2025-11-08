@@ -277,6 +277,58 @@ systemctl enable tidal-volume-bridge.service
 
 log INFO "Finished enabling TIDAL Connect Volume Bridge Service."
 
+# Enable watchdog service for auto-recovery
+log INFO  "Enabling TIDAL Connect Watchdog Service."
+eval "echo \"$(cat templates/tidal-watchdog.service.tpl)\"" >/etc/systemd/system/tidal-watchdog.service
+
+systemctl enable tidal-watchdog.service
+
+log INFO "Finished enabling TIDAL Connect Watchdog Service."
+
+# Install AudioControl2 integration (metadata and web UI controls)
+if [ -f "/opt/audiocontrol2/audiocontrol2.py" ]; then
+  log INFO "Installing TIDAL Connect AudioControl2 Integration."
+  
+  # Create symlink to tidalcontrol.py
+  DST_PLAYER_FILE="/opt/audiocontrol2/ac2/players/tidalcontrol.py"
+  rm -f "$DST_PLAYER_FILE"
+  ln -s "${PWD}/work-in-progress/audiocontrol2/tidalcontrol.py" "$DST_PLAYER_FILE"
+  
+  AC_CONTROL_FILE="/opt/audiocontrol2/audiocontrol2.py"
+  
+  # Check if already configured
+  if ! grep -q "from ac2.players.tidalcontrol import TidalControl" "$AC_CONTROL_FILE"; then
+    log INFO "Configuring AudioControl2 for Tidal integration."
+    
+    # Add import
+    sed -i '/^from ac2\.players\.vollibrespot import MYNAME as SPOTIFYNAME$/a from ac2.players.tidalcontrol import TidalControl' "$AC_CONTROL_FILE"
+    
+    # Add registration
+    PLACEHOLDER="$(sed -nE 's/^(.*)mpris\.register_nonmpris_player\(SPOTIFYNAME,vlrctl\)$/\1/p' "$AC_CONTROL_FILE")"
+    sed -i "/mpris.register_nonmpris_player(SPOTIFYNAME,vlrctl)/a \\\n${PLACEHOLDER}# TidalControl\n${PLACEHOLDER}tdctl = TidalControl()\n${PLACEHOLDER}tdctl.start()\n${PLACEHOLDER}mpris.register_nonmpris_player(tdctl.playername,tdctl)" "$AC_CONTROL_FILE"
+  else
+    log INFO "AudioControl2 already configured for Tidal."
+  fi
+  
+  # Create service override to ensure audiocontrol2 starts after tidal
+  AC_OVERRIDE_DIR="/etc/systemd/system/audiocontrol2.service.d"
+  mkdir -p "$AC_OVERRIDE_DIR"
+  
+  cat > "$AC_OVERRIDE_DIR/tidal-integration.conf" <<EOF
+[Unit]
+# Ensure AudioControl2 starts after Tidal Connect
+After=tidal.service
+Wants=tidal.service
+EOF
+  
+  systemctl daemon-reload
+  systemctl restart audiocontrol2 2>/dev/null || true
+  
+  log INFO "Finished installing AudioControl2 integration."
+else
+  log INFO "AudioControl2 not found - skipping UI integration (metadata will still work via JSON file)."
+fi
+
 # Add TIDAL Connect Source to Beocreate
 log INFO "Adding TIDAL Connect Source to Beocreate."
 if [ -L "${BEOCREATE_SYMLINK_FOLDER}" ]; then
@@ -288,6 +340,13 @@ fi
 log INFO "Adding TIDAL Connect Source to Beocreate UI."
 ln -s ${PWD}/beocreate/beo-extensions/tidal ${BEOCREATE_SYMLINK_FOLDER}
 log INFO "Finished adding TIDAL Connect Source to Beocreate."
+
+# Ensure scripts are executable
+log INFO "Setting script permissions."
+chmod +x ${PWD}/volume-bridge.sh 2>/dev/null || true
+chmod +x ${PWD}/tidal-watchdog.sh 2>/dev/null || true
+chmod +x ${PWD}/start-tidal-service.sh 2>/dev/null || true
+chmod +x ${PWD}/stop-tidal-service.sh 2>/dev/null || true
 
 log INFO "Installation Completed."
 
@@ -302,4 +361,35 @@ log INFO "Starting TIDAL Connect Service."
 log INFO "Restarting Beocreate 2 Service."
 ./restart_beocreate2
 
+log INFO "=========================================="
+log INFO "TIDAL Connect Installation Complete!"
+log INFO "=========================================="
+log INFO ""
+log INFO "Installed Features:"
+log INFO "  ✓ TIDAL Connect service"
+log INFO "  ✓ Volume bridge (phone volume control)"
+log INFO "  ✓ Connection watchdog (auto-recovery)"
+if [ -f "/opt/audiocontrol2/audiocontrol2.py" ]; then
+  log INFO "  ✓ AudioControl2 integration (metadata + UI controls)"
+fi
+log INFO ""
+log INFO "Your device should now be visible in TIDAL as: ${FRIENDLY_NAME}"
+log INFO ""
+log INFO "To verify installation:"
+log INFO "  systemctl status tidal.service"
+log INFO "  systemctl status tidal-volume-bridge.service"
+log INFO "  systemctl status tidal-watchdog.service"
+if [ -f "/opt/audiocontrol2/audiocontrol2.py" ]; then
+  log INFO "  curl http://127.0.0.1:81/api/player/status"
+fi
+log INFO ""
+log INFO "To view logs:"
+log INFO "  docker logs -f tidal_connect"
+log INFO "  tail -f /var/log/tidal-watchdog.log"
+log INFO ""
+log INFO "Documentation:"
+log INFO "  README.md - Main documentation"
+log INFO "  WATCHDOG.md - Connection resilience info"
+log INFO "  work-in-progress/audiocontrol2/README.md - UI integration info"
+log INFO ""
 log INFO "Finished, exiting."

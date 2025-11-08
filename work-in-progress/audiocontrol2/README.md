@@ -1,18 +1,42 @@
+# Tidal Connect AudioControl2 Integration
 
-* Note! This modification is work-in-progress 
-And requires manual editting of the HifiBerryOS files.
-If you are not comfortable with editting in Linux environment, wrongly modifying these files can lead to a non-working HifiBerryOS system. Therefore: ALWAYS make a backup of files that you are about to change. You do this modication at your own risk.
+This integration enables Tidal Connect metadata to display in the HifiBerry UI, showing:
+- Now playing information (artist, title, album)
+- Playback state (playing/paused/stopped)
+- Track position and duration
+- Web UI playback controls (play/pause, next, previous)
 
-* CURRENT ISSUES *
+## Architecture
 
-Right now the solution ONLY works when running the AudioControl2 process in the foreground.
-This might has something todo with the Threading i am polling the information in Python.
-The result is that, if you start this service as background job (e.g. systemctl start audiocontrol2) it will not work.
+The integration uses a two-component approach:
 
+1. **volume-bridge.sh**: Scrapes metadata from `speaker_controller_application` tmux output and exports to `/tmp/tidal-status.json`
+2. **tidalcontrol.py**: AudioControl2 plugin that reads the JSON file and registers as a player
 
-* Installation
+This avoids threading issues and provides fast, reliable metadata updates.
 
-You can either run the ./install.sh script or add the following modifications manually
+## Prerequisites
+
+- HifiBerryOS with AudioControl2 installed
+- Tidal Connect Docker container running (with volume-bridge service)
+## Quick Installation
+
+**On your HifiBerry system:**
+
+```bash
+cd /data/tidal-connect-docker/work-in-progress/audiocontrol2
+./install.sh
+```
+
+The script will:
+1. Install the Tidal player plugin
+2. Configure AudioControl2 to load the plugin
+3. Set up service dependencies
+4. Restart AudioControl2
+
+## Manual Installation
+
+If you prefer to install manually or troubleshoot issues
 
    ```
 1. Create symbolic link to add TidalController to AudioControl2 daemon
@@ -63,10 +87,53 @@ You can either run the ./install.sh script or add the following modifications ma
    systemctl restart audiocontrol2
    ```
 
-6. Done!!!... Now open your HifiBerryOS webpage and start a song... you should see track metadata in the player. (controls from WEBUI still needs to be implemted. Controls work via Phone.)
+6. Done! Open your HifiBerryOS web interface and play a song - you should see track metadata and playback controls.
 
-* Audio Controll Api Reference
-https://github.com/hifiberry/audiocontrol2/blob/master/doc/api.md
+## Verification
 
-** NOTE TO SELF: I will make a daemon which will scrape and keep track of state, independendly from the AudioController (this because Threading doesnt seem to play nicely and scraping from docker using TMUX is too slow). The daemon will scrape state in seperate thread and then update ENV vars that can be accessed globally. 
-The audiocontrol2 will simply only read the ENV vars.
+Check that Tidal is registered as a player:
+
+```bash
+curl http://127.0.0.1:81/api/player/status
+```
+
+You should see `"name": "Tidal"` in the players list.
+
+Check metadata while playing:
+
+```bash
+curl http://127.0.0.1:81/api/track/metadata
+```
+
+You should see artist, title, album information when a track is playing.
+
+## Troubleshooting
+
+### Tidal not showing in player list
+
+1. Check that volume-bridge is running:
+   ```bash
+   systemctl status tidal-volume-bridge
+   ```
+
+2. Check that the status file is being updated:
+   ```bash
+   ls -la /tmp/tidal-status.json
+   cat /tmp/tidal-status.json
+   ```
+
+3. Check AudioControl2 logs:
+   ```bash
+   journalctl -u audiocontrol2 -f
+   ```
+
+### Metadata not updating
+
+- Ensure you're playing music through Tidal Connect
+- Check that `/tmp/tidal-status.json` is being updated (timestamp should be recent)
+- Restart AudioControl2: `systemctl restart audiocontrol2`
+
+## References
+
+* [AudioControl2 API Documentation](https://github.com/hifiberry/audiocontrol2/blob/master/doc/api.md)
+* [HifiBerryOS Documentation](https://github.com/hifiberry/hifiberry-os)

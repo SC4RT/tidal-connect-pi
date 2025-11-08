@@ -19,12 +19,32 @@ Please visit https://www.raspberrypi.org/forums/viewtopic.php?t=297771 for full 
 I have been happily using HifiberryOS but being an extremely slim OS (based on Buildroot) has its pitfalls, that there is no easy way of extending its current features. Thankfully the Hifiberry Team have blessed us by providing Docker and Docker-Compose within OS.
 As I didn't want to add yet another system for Tidal integration (e.g. Bluesound, Volumio), i stumbled upon this https://support.hifiberry.com/hc/en-us/community/posts/360013667717-Tidal-Connect-, and i decided to do something about it. 
 
-This port does much more than just providing the docker image with TIDAL Connect and volume control, as for HifiBerry users it will also install additional sources meny as displayed above.
-Volume controls are reflected in the UI.
+This port does much more than just providing the docker image with TIDAL Connect and volume control, as for HifiBerry users it will also install additional sources menu as displayed above.
 
-# Known issues
+# Features
 
-* Remote volume control (via IOS/Android) is not working on Hifiberry DAC2 Pro. This DAC seems to use hardware mixer for audio and this doesnt seem to be compatible with the speaker_controller app. This issue is under investigation (https://github.com/TonyTromp/tidal-connect-docker/issues/6)
+## Core Functionality
+- ✅ **TIDAL Connect** - Full Tidal Connect integration for high-quality music streaming
+- ✅ **Docker-based** - Clean, isolated installation that doesn't interfere with your system
+- ✅ **HifiBerry UI Integration** - Tidal appears as a source in the HifiBerry web interface
+
+## Enhanced Features (New!)
+- ✅ **Phone Volume Control** - Volume adjustments from your phone/tablet are synced to ALSA mixer
+- ✅ **Metadata Display** - Now playing info (artist, title, album) shown in HifiBerry UI via AudioControl2
+- ✅ **Web UI Controls** - Play/pause, next, previous controls work from the HifiBerry web interface
+- ✅ **Connection Watchdog** - Automatic recovery from connection drops and token expiration
+- ✅ **WiFi Power Management** - Automatically disabled for improved responsiveness
+
+## Audio Quality
+- Supports up to 24-bit/96kHz (depending on your DAC)
+- MQA passthrough support (configurable)
+- Direct ALSA integration for low-latency playback
+
+# Known Issues & Limitations
+
+* ~~Remote volume control (via IOS/Android) is not working on Hifiberry DAC2 Pro~~ **FIXED!** Now works via volume bridge
+* Token expiration may require reconnecting from Tidal app (watchdog handles automatic recovery)
+* Web UI volume slider may not reflect phone volume changes in real-time (phone control works, just display lag)
 
 # Installation
 
@@ -46,10 +66,52 @@ cd /data && \
 
 Other PiOS (e.g. Raspbian), you can find the docker-compose scripts in the Docker folder.
 
-ENJOY ! ;)
+## What Gets Installed
 
-This will download the Docker image from github and install and start TIDAL Connect as a service.
-In addition it will also add a new UI Source to HifiBerry called TIDAL Connect which you can use to start/stop the service
+The installation script sets up:
+
+1. **tidal.service** - Main Tidal Connect Docker container
+2. **tidal-volume-bridge.service** - Syncs phone volume to ALSA mixer and exports metadata
+3. **tidal-watchdog.service** - Monitors for connection issues and auto-recovers
+4. **AudioControl2 integration** (if available) - Enables metadata display and web UI controls
+5. **HifiBerry UI source** - Adds Tidal Connect to the sources menu
+
+## Verification
+
+After installation, verify everything is running:
+
+```bash
+# Check all services
+systemctl status tidal.service
+systemctl status tidal-volume-bridge.service
+systemctl status tidal-watchdog.service
+
+# Check that Tidal appears in AudioControl2 (if available)
+curl http://127.0.0.1:81/api/player/status
+
+# Watch logs
+docker logs -f tidal_connect
+tail -f /var/log/tidal-watchdog.log
+```
+
+Your device should now appear in the Tidal app on your phone as the friendly name you configured!
+
+ENJOY! 🎵
+
+## Managing the Service
+
+```bash
+# Start Tidal Connect
+./start-tidal-service.sh
+
+# Stop Tidal Connect  
+./stop-tidal-service.sh
+
+# View logs
+docker logs -f tidal_connect
+journalctl -u tidal-volume-bridge -f
+journalctl -u tidal-watchdog -f
+```
 
 ## Usage
 ```
