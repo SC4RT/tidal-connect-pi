@@ -193,7 +193,21 @@ class TidalControl(PlayerControl):
     def is_active(self):
         """
         Checks if Tidal player is active on the system
+        Always checks current status to ensure accuracy
         """
+        # Always update status to get current state
         self._update_status()
+        
+        # If still not active, double-check container as fallback
+        if not self.is_active_player:
+            try:
+                result = subprocess.run(['docker', 'ps', '-q', '-f', 'name=tidal_connect'], 
+                                      capture_output=True, text=True, timeout=2)
+                if result.returncode == 0 and result.stdout.strip():
+                    self.is_active_player = True
+                    logging.info('tidalcontrol: Container is running, marking player as active')
+            except Exception as e:
+                logging.debug(f'tidalcontrol: Error checking container: {e}')
+        
         return self.is_active_player
     
