@@ -37,9 +37,12 @@ ${INDENT}tdctl = TidalControl()
 ${INDENT}tdctl.start()
 ${INDENT}mpris.register_nonmpris_player(tdctl.playername,tdctl)"
 
-# Insert after Spotify registration line
-sed -i "${SPOTIFY_LINE}a\\
-${REGISTRATION_CODE}" "$AC_CONTROL_FILE"
+# Insert after Spotify registration line (use a temp file for compatibility)
+TEMP_FILE=$(mktemp)
+head -n "${SPOTIFY_LINE}" "$AC_CONTROL_FILE" > "$TEMP_FILE"
+echo "$REGISTRATION_CODE" >> "$TEMP_FILE"
+tail -n +$((SPOTIFY_LINE + 1)) "$AC_CONTROL_FILE" >> "$TEMP_FILE"
+mv "$TEMP_FILE" "$AC_CONTROL_FILE"
 
 echo "✓ Tidal registration added to AudioControl2"
 echo "Please restart AudioControl2: systemctl restart audiocontrol2"
