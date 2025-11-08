@@ -348,8 +348,13 @@ if [ -f "/opt/audiocontrol2/audiocontrol2.py" ]; then
   if [ "$HAS_REGISTRATION" = "no" ]; then
     log INFO "Adding Tidal registration to AudioControl2."
     # Use a more robust method to add registration
-    # Find the line with Spotify registration
-    SPOTIFY_LINE=$(grep -n "mpris.register_nonmpris_player(SPOTIFYNAME,vlrctl)" "$AC_CONTROL_FILE" | head -1 | cut -d: -f1)
+    # Find the line with Spotify registration (try multiple patterns)
+    SPOTIFY_LINE=$(grep -n "register_nonmpris_player.*vlrctl\|register_nonmpris_player.*SPOTIFYNAME\|register_nonmpris_player.*vollibrespot" "$AC_CONTROL_FILE" | head -1 | cut -d: -f1)
+    
+    if [ -z "$SPOTIFY_LINE" ]; then
+      # Try finding any register_nonmpris_player line as fallback
+      SPOTIFY_LINE=$(grep -n "register_nonmpris_player" "$AC_CONTROL_FILE" | head -1 | cut -d: -f1)
+    fi
     
     if [ -n "$SPOTIFY_LINE" ]; then
       # Get indentation from that line
@@ -365,7 +370,8 @@ ${INDENT}mpris.register_nonmpris_player(tdctl.playername,tdctl)"
       echo "$REGISTRATION_CODE" | sed -i "${SPOTIFY_LINE}r /dev/stdin" "$AC_CONTROL_FILE"
       log INFO "Tidal registration code added successfully."
     else
-      log ERROR "Could not find Spotify registration line. Manual configuration may be required."
+      log ERROR "Could not find any player registration line. Manual configuration required."
+      log ERROR "Run: ./work-in-progress/audiocontrol2/add-tidal-registration.sh"
     fi
   fi
   

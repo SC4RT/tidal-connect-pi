@@ -16,11 +16,15 @@ if grep -q "tdctl = TidalControl()" "$AC_CONTROL_FILE"; then
     exit 0
 fi
 
-# Find the line with Spotify registration
-SPOTIFY_LINE=$(grep -n "mpris.register_nonmpris_player(SPOTIFYNAME,vlrctl)" "$AC_CONTROL_FILE" | head -1 | cut -d: -f1)
+# Find the line with Spotify registration (try multiple patterns)
+SPOTIFY_LINE=$(grep -n "register_nonmpris_player.*vlrctl\|register_nonmpris_player.*SPOTIFYNAME\|register_nonmpris_player.*vollibrespot" "$AC_CONTROL_FILE" | head -1 | cut -d: -f1)
 
 if [ -z "$SPOTIFY_LINE" ]; then
     echo "ERROR: Could not find Spotify registration line"
+    echo "Searching for registration patterns..."
+    grep -n "register_nonmpris_player" "$AC_CONTROL_FILE" | head -5
+    echo ""
+    echo "Please manually add the registration code after the Spotify registration line."
     exit 1
 fi
 
