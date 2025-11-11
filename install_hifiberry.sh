@@ -206,6 +206,29 @@ done
 
 running_environment
 
+# Clean up any existing installation state
+if systemctl is-active --quiet tidal.service 2>/dev/null || docker ps -a | grep -q tidal_connect; then
+  log INFO "Existing installation detected, performing cleanup..."
+  
+  # Stop services
+  systemctl stop tidal-watchdog.service 2>/dev/null || true
+  systemctl stop tidal-volume-bridge.service 2>/dev/null || true
+  systemctl stop tidal.service 2>/dev/null || true
+  
+  # Remove containers
+  docker rm -f tidal_connect 2>/dev/null || true
+  
+  # Reset failed states
+  systemctl reset-failed tidal.service 2>/dev/null || true
+  systemctl reset-failed tidal-volume-bridge.service 2>/dev/null || true
+  systemctl reset-failed tidal-watchdog.service 2>/dev/null || true
+  
+  # Wait for cleanup
+  sleep 2
+  
+  log INFO "Cleanup complete"
+fi
+
 log INFO "Pre-flight checks."
 
 log INFO "Checking to see if Docker is running."

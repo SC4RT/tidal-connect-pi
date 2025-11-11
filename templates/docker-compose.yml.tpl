@@ -13,5 +13,3 @@ services:
       - ./entrypoint.sh:/entrypoint.sh
       - /var/run/dbus:/var/run/dbus
     restart: always
-    dns:
-      - ${DOCKER_DNS}

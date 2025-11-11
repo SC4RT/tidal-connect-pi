@@ -287,18 +287,27 @@ systemctl start tidal.service
 
 ### Device Not Found in TIDAL App? 🔍
 
-**Most common issue**: mDNS collision during rapid restarts (service colliding with itself)
+**First, try the reset script** - This clears all state and restarts cleanly:
+```bash
+cd /data/tidal-connect-docker
+./reset-tidal.sh
+```
 
-**Quick fix** - Update to latest version:
+This script:
+- Stops all services cleanly
+- Removes stuck Docker containers
+- Clears mDNS cache (restarts Avahi)
+- Reloads ALSA state
+- Starts everything in the correct order
+
+**If that doesn't work** - Update to latest version:
 ```bash
 cd /data/tidal-connect-docker
 git pull
-eval "echo \"$(cat templates/tidal.service.tpl)\"" >/etc/systemd/system/tidal.service
-systemctl daemon-reload
-systemctl stop tidal.service && sleep 5 && systemctl start tidal.service
+./install_hifiberry.sh  # Re-run install (safe, preserves settings)
 ```
 
-**If still not working** - Try changing device name:
+**Still having issues?** - Try changing device name:
 ```bash
 ./fix-name-collision.sh
 ```
