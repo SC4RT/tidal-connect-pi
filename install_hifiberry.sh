@@ -73,17 +73,35 @@ usage()
 select_playback_device()
 {
   ARRAY_DEVICES=()
-  DEVICES=$(docker run --device /dev/snd \
+  
+  echo ""
+  echo "Scanning for audio output devices..."
+  
+  # Try to get devices using docker run (container doesn't need to be running)
+  DEVICES=$(docker run --rm --device /dev/snd \
     --entrypoint "" \
-    edgecrush3r/tidal-connect \
+    ${DOCKER_IMAGE} \
     /app/ifi-tidal-release/bin/ifi-pa-devs-get 2>/dev/null | grep device#)
 
+  if [ -z "$DEVICES" ]; then
+    log ERROR "Could not detect audio devices. Trying alternative method..."
+    # Fallback: try to use aplay to list devices
+    DEVICES=$(aplay -l 2>/dev/null | grep -E "^card [0-9]+:" | head -5)
+    if [ -z "$DEVICES" ]; then
+      log ERROR "No audio devices found. Using default device."
+      PLAYBACK_DEVICE="default"
+      return
+    fi
+  fi
+
   echo ""
-  echo "Found output devices..."
+  echo "Found output devices:"
   echo ""
+  
   #make newlines the only separator
   IFS=$'\n'
   re_parse="^device#([0-9])+=(.*)$"
+  device_count=0
   for line in $DEVICES
   do
     if [[ $line =~ $re_parse ]]
@@ -91,21 +109,35 @@ select_playback_device()
       device_num="${BASH_REMATCH[1]}"
       device_name="${BASH_REMATCH[2]}"
 
-      echo "${device_num}=${device_name}"
-      ARRAY_DEVICES+=( ${device_name} )
+      echo "  ${device_num}=${device_name}"
+      ARRAY_DEVICES+=( "${device_name}" )
+      device_count=$((device_count + 1))
     fi
   done
 
+  if [ $device_count -eq 0 ]; then
+    log ERROR "No valid audio devices found. Using default device."
+    PLAYBACK_DEVICE="default"
+    return
+  fi
+
+  echo ""
   while :; do
-    read -ep 'Choose your output Device (0-9): ' number
-    [[ $number =~ ^[[:digit:]]+$ ]] || continue
-    (( ( (number=(10#$number)) <= 9999 ) && number >= 0 )) || continue
-    # Here I'm sure that number is a valid number in the range 0..9999
-    # So let's break the infinite loop!
+    read -ep "Choose your output Device (0-$((device_count-1))): " number
+    [[ $number =~ ^[[:digit:]]+$ ]] || { echo "Please enter a number."; continue; }
+    (( ( (number=(10#$number)) <= $((device_count-1)) ) && number >= 0 )) || { echo "Please enter a number between 0 and $((device_count-1))."; continue; }
     break
   done
 
   PLAYBACK_DEVICE="${ARRAY_DEVICES[$number]}"
+  
+  if [ -z "$PLAYBACK_DEVICE" ]; then
+    log ERROR "Invalid device selection. Using default device."
+    PLAYBACK_DEVICE="default"
+  else
+    echo ""
+    echo "Selected: ${PLAYBACK_DEVICE}"
+  fi
 }
 
 
@@ -174,6 +206,29 @@ done
 
 running_environment
 
+# Clean up any existing installation state
+if systemctl is-active --quiet tidal.service 2>/dev/null || docker ps -a | grep -q tidal_connect; then
+  log INFO "Existing installation detected, performing cleanup..."
+  
+  # Stop services
+  systemctl stop tidal-watchdog.service 2>/dev/null || true
+  systemctl stop tidal-volume-bridge.service 2>/dev/null || true
+  systemctl stop tidal.service 2>/dev/null || true
+  
+  # Remove containers
+  docker rm -f tidal_connect 2>/dev/null || true
+  
+  # Reset failed states
+  systemctl reset-failed tidal.service 2>/dev/null || true
+  systemctl reset-failed tidal-volume-bridge.service 2>/dev/null || true
+  systemctl reset-failed tidal-watchdog.service 2>/dev/null || true
+  
+  # Wait for cleanup
+  sleep 2
+  
+  log INFO "Cleanup complete"
+fi
+
 log INFO "Pre-flight checks."
 
 log INFO "Checking to see if Docker is running."
@@ -235,7 +290,14 @@ fi
 
 log INFO "Select audio output device"
 select_playback_device
-echo ${PLAYBACK_DEVICE}
+
+# Validate that a device was selected
+if [ -z "$PLAYBACK_DEVICE" ]; then
+  log ERROR "No playback device selected. Installation cannot continue."
+  exit 1
+fi
+
+log INFO "Playback device set to: ${PLAYBACK_DEVICE}"
 
 log INFO "Creating .env file."
 ENV_FILE="${PWD}/Docker/.env"
@@ -269,6 +331,121 @@ systemctl enable tidal.service
 
 log INFO "Finished enabling TIDAL Connect Service."
 
+# Enable volume bridge service
+log INFO  "Enabling TIDAL Connect Volume Bridge Service."
+eval "echo \"$(cat templates/tidal-volume-bridge.service.tpl)\"" >/etc/systemd/system/tidal-volume-bridge.service
+
+systemctl enable tidal-volume-bridge.service
+
+log INFO "Finished enabling TIDAL Connect Volume Bridge Service."
+
+# Enable watchdog service for auto-recovery
+log INFO  "Enabling TIDAL Connect Watchdog Service."
+eval "echo \"$(cat templates/tidal-watchdog.service.tpl)\"" >/etc/systemd/system/tidal-watchdog.service
+
+systemctl enable tidal-watchdog.service
+
+log INFO "Finished enabling TIDAL Connect Watchdog Service."
+
+# Install AudioControl2 integration (metadata and web UI controls)
+if [ -f "/opt/audiocontrol2/audiocontrol2.py" ]; then
+  log INFO "Installing TIDAL Connect AudioControl2 Integration."
+  
+  # Create symlink to tidalcontrol.py
+  DST_PLAYER_FILE="/opt/audiocontrol2/ac2/players/tidalcontrol.py"
+  rm -f "$DST_PLAYER_FILE"
+  ln -s "${PWD}/work-in-progress/audiocontrol2/tidalcontrol.py" "$DST_PLAYER_FILE"
+  
+  AC_CONTROL_FILE="/opt/audiocontrol2/audiocontrol2.py"
+  
+  # Check if already configured (both import AND registration)
+  HAS_IMPORT=$(grep -q "from ac2.players.tidalcontrol import TidalControl" "$AC_CONTROL_FILE" && echo "yes" || echo "no")
+  HAS_REGISTRATION=$(grep -q "tdctl = TidalControl()" "$AC_CONTROL_FILE" && echo "yes" || echo "no")
+  
+  if [ "$HAS_IMPORT" = "no" ]; then
+    log INFO "Adding Tidal import to AudioControl2."
+    # Add import
+    sed -i '/^from ac2\.players\.vollibrespot import MYNAME as SPOTIFYNAME$/a from ac2.players.tidalcontrol import TidalControl' "$AC_CONTROL_FILE"
+  fi
+  
+  if [ "$HAS_REGISTRATION" = "no" ]; then
+    log INFO "Adding Tidal registration to AudioControl2."
+    # Use a more robust method to add registration
+    # Find the line with Spotify registration (try multiple patterns)
+    SPOTIFY_LINE=$(grep -n "register_nonmpris_player.*vlrctl\|register_nonmpris_player.*SPOTIFYNAME\|register_nonmpris_player.*vollibrespot" "$AC_CONTROL_FILE" | head -1 | cut -d: -f1)
+    
+    if [ -z "$SPOTIFY_LINE" ]; then
+      # Try finding any register_nonmpris_player line as fallback
+      SPOTIFY_LINE=$(grep -n "register_nonmpris_player" "$AC_CONTROL_FILE" | head -1 | cut -d: -f1)
+    fi
+    
+    if [ -n "$SPOTIFY_LINE" ]; then
+      # Get indentation from that line
+      INDENT=$(sed -n "${SPOTIFY_LINE}p" "$AC_CONTROL_FILE" | sed 's/^\([[:space:]]*\).*/\1/')
+      
+      # Create registration code with proper indentation
+      REGISTRATION_CODE="${INDENT}# TidalControl
+${INDENT}tdctl = TidalControl()
+${INDENT}tdctl.start()
+${INDENT}mpris.register_nonmpris_player(tdctl.playername,tdctl)"
+      
+      # Insert after Spotify registration line (use temp file for compatibility)
+      TEMP_FILE=$(mktemp)
+      if head -n "${SPOTIFY_LINE}" "$AC_CONTROL_FILE" > "$TEMP_FILE" 2>/dev/null && \
+         echo "$REGISTRATION_CODE" >> "$TEMP_FILE" && \
+         tail -n +$((SPOTIFY_LINE + 1)) "$AC_CONTROL_FILE" >> "$TEMP_FILE" 2>/dev/null; then
+        # Verify before replacing
+        if grep -q "tdctl = TidalControl()" "$TEMP_FILE"; then
+          # Backup and replace
+          cp "$AC_CONTROL_FILE" "${AC_CONTROL_FILE}.bak"
+          if mv "$TEMP_FILE" "$AC_CONTROL_FILE" && grep -q "tdctl = TidalControl()" "$AC_CONTROL_FILE"; then
+            rm -f "${AC_CONTROL_FILE}.bak"
+            log INFO "Tidal registration code added successfully."
+          else
+            log ERROR "Failed to verify registration. Restoring backup..."
+            mv "${AC_CONTROL_FILE}.bak" "$AC_CONTROL_FILE" 2>/dev/null || true
+            rm -f "$TEMP_FILE"
+            log ERROR "Run: ./work-in-progress/audiocontrol2/add-tidal-registration.sh"
+          fi
+        else
+          log ERROR "Registration code not found in temp file. Aborting."
+          rm -f "$TEMP_FILE"
+          log ERROR "Run: ./work-in-progress/audiocontrol2/add-tidal-registration.sh"
+        fi
+      else
+        log ERROR "Failed to create temp file for registration."
+        rm -f "$TEMP_FILE"
+        log ERROR "Run: ./work-in-progress/audiocontrol2/add-tidal-registration.sh"
+      fi
+    else
+      log ERROR "Could not find any player registration line. Manual configuration required."
+      log ERROR "Run: ./work-in-progress/audiocontrol2/add-tidal-registration.sh"
+    fi
+  fi
+  
+  if [ "$HAS_IMPORT" = "yes" ] && [ "$HAS_REGISTRATION" = "yes" ]; then
+    log INFO "AudioControl2 already fully configured for Tidal."
+  fi
+  
+  # Create service override to ensure audiocontrol2 starts after tidal
+  AC_OVERRIDE_DIR="/etc/systemd/system/audiocontrol2.service.d"
+  mkdir -p "$AC_OVERRIDE_DIR"
+  
+  cat > "$AC_OVERRIDE_DIR/tidal-integration.conf" <<EOF
+[Unit]
+# Ensure AudioControl2 starts after Tidal Connect
+After=tidal.service
+Wants=tidal.service
+EOF
+  
+  systemctl daemon-reload
+  systemctl restart audiocontrol2 2>/dev/null || true
+  
+  log INFO "Finished installing AudioControl2 integration."
+else
+  log INFO "AudioControl2 not found - skipping UI integration (metadata will still work via JSON file)."
+fi
+
 # Add TIDAL Connect Source to Beocreate
 log INFO "Adding TIDAL Connect Source to Beocreate."
 if [ -L "${BEOCREATE_SYMLINK_FOLDER}" ]; then
@@ -280,6 +457,18 @@ fi
 log INFO "Adding TIDAL Connect Source to Beocreate UI."
 ln -s ${PWD}/beocreate/beo-extensions/tidal ${BEOCREATE_SYMLINK_FOLDER}
 log INFO "Finished adding TIDAL Connect Source to Beocreate."
+
+        # Ensure scripts are executable
+        log INFO "Setting script permissions."
+        chmod +x ${PWD}/volume-bridge.sh 2>/dev/null || true
+        chmod +x ${PWD}/tidal-watchdog.sh 2>/dev/null || true
+        chmod +x ${PWD}/wait-for-avahi.sh 2>/dev/null || true
+        chmod +x ${PWD}/wait-for-container.sh 2>/dev/null || true
+        chmod +x ${PWD}/wait-for-mdns-clear.sh 2>/dev/null || true
+        chmod +x ${PWD}/start-tidal-service.sh 2>/dev/null || true
+        chmod +x ${PWD}/stop-tidal-service.sh 2>/dev/null || true
+        chmod +x ${PWD}/check-tidal-status.sh 2>/dev/null || true
+        chmod +x ${PWD}/fix-name-collision.sh 2>/dev/null || true
 
 log INFO "Installation Completed."
 
@@ -294,4 +483,35 @@ log INFO "Starting TIDAL Connect Service."
 log INFO "Restarting Beocreate 2 Service."
 ./restart_beocreate2
 
+log INFO "=========================================="
+log INFO "TIDAL Connect Installation Complete!"
+log INFO "=========================================="
+log INFO ""
+log INFO "Installed Features:"
+log INFO "  ✓ TIDAL Connect service"
+log INFO "  ✓ Volume bridge (phone volume control)"
+log INFO "  ✓ Connection watchdog (auto-recovery)"
+if [ -f "/opt/audiocontrol2/audiocontrol2.py" ]; then
+  log INFO "  ✓ AudioControl2 integration (metadata + UI controls)"
+fi
+log INFO ""
+log INFO "Your device should now be visible in TIDAL as: ${FRIENDLY_NAME}"
+log INFO ""
+log INFO "To verify installation:"
+log INFO "  systemctl status tidal.service"
+log INFO "  systemctl status tidal-volume-bridge.service"
+log INFO "  systemctl status tidal-watchdog.service"
+if [ -f "/opt/audiocontrol2/audiocontrol2.py" ]; then
+  log INFO "  curl http://127.0.0.1:81/api/player/status"
+fi
+log INFO ""
+log INFO "To view logs:"
+log INFO "  docker logs -f tidal_connect"
+log INFO "  tail -f /var/log/tidal-watchdog.log"
+log INFO ""
+log INFO "Documentation:"
+log INFO "  README.md - Main documentation"
+log INFO "  WATCHDOG.md - Connection resilience info"
+log INFO "  work-in-progress/audiocontrol2/README.md - UI integration info"
+log INFO ""
 log INFO "Finished, exiting."
