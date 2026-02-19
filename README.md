@@ -27,6 +27,10 @@ Please run to check for any errors, keep in mind that any ALSA 'unknown' errors 
 ```
 sudo docker logs tidal_connect -f
 ```
+## Volume Control
+App volume control may not work, please refer to: https://github.com/TonyTromp/tidal-connect-docker/issues/45 for a solution
+
+
 ![pallas](https://imgs.search.brave.com/GHu4YiG_g4JAjG5LfrQ1hHwtkgqGOLD3-2xgSDtrJeA/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9pMC53/cC5jb20vY2FpdGx5/bmZpbnRvbi5jb20v/d3AtY29udGVudC91/cGxvYWRzLzIwMjMv/MDMvMTExNzQ2MzA2/MDZfMWQxZGI0MmI1/ZF9vLmpwZz9yZXNp/emU9MTAyNCw2ODIm/c3NsPTE)
 
 
