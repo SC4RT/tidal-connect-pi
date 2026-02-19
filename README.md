@@ -1,10 +1,29 @@
+# Raspberry Pi Tidal Connect Docker Installation Script
 
-Please help me through this morning and
+## This fork adds an installation script for Raspbian (Raspberry Pi OS).<br/>
+## It also fixes an error which causes the tidal connect docker to fail to install.<br/>
+The issue was that the docker yml template was being incorrectly copied over and the speech marks around 'restart: "no" ' were failing to be copied over.
+My solution was changing it from "no" to 'no' which can be correctly copied over into the docker yml allowing it to be initialised correctly.
 
-<a href="https://www.buymeacoffee.com/tonytromp" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+# Installation for Raspbian (Raspberry Pi OS)
+```
+git clone https://github.com/SC4RT/tidal-connect-pi.git
+```
+```
+cd tidal-connect-pi
+```
+```
+sudo ./install_raspbian.sh
+```
 
-Thanks for your support :heart:
+![pallas](https://imgs.search.brave.com/GHu4YiG_g4JAjG5LfrQ1hHwtkgqGOLD3-2xgSDtrJeA/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9pMC53/cC5jb20vY2FpdGx5/bmZpbnRvbi5jb20v/d3AtY29udGVudC91/cGxvYWRzLzIwMjMv/MDMvMTExNzQ2MzA2/MDZfMWQxZGI0MmI1/ZF9vLmpwZz9yZXNp/emU9MTAyNCw2ODIm/c3NsPTE)
 
+
+# V Go support the original creator
+<a href="https://www.buymeacoffee.com/tonytromp" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 30px !important;width: 110px !important;" ></a>
+
+
+# V Original ReadMe Continued Below V 
 
 
 # Tidal Connect Docker image for HifiBerry (and RaspbianOS)
