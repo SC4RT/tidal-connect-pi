@@ -12,4 +12,4 @@ services:
     volumes:
       - ./entrypoint.sh:/entrypoint.sh
       - /var/run/dbus:/var/run/dbus
-    restart: "no"
+    restart: 'no'
