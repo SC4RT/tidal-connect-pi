@@ -15,7 +15,18 @@ cd tidal-connect-pi
 ```
 sudo ./install_raspbian.sh
 ```
-
+## Configuration
+```
+-f <FRIENDLY_NAME>
+-m <MODEL_NAME>
+-d <DOCKER_DNS>
+Example: sudo ./install_raspbian.sh -f ZiFi -m RaspberryPi -d 9.9.9.9
+```
+## Test
+Please run to check for any errors, keep in mind that any ALSA 'unknown' errors are expected for virtual devices and such
+```
+sudo docker logs tidal_connect -f
+```
 ![pallas](https://imgs.search.brave.com/GHu4YiG_g4JAjG5LfrQ1hHwtkgqGOLD3-2xgSDtrJeA/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9pMC53/cC5jb20vY2FpdGx5/bmZpbnRvbi5jb20v/d3AtY29udGVudC91/cGxvYWRzLzIwMjMv/MDMvMTExNzQ2MzA2/MDZfMWQxZGI0MmI1/ZF9vLmpwZz9yZXNp/emU9MTAyNCw2ODIm/c3NsPTE)
 
 
